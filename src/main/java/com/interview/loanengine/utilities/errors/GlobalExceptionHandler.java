@@ -1,4 +1,4 @@
-package com.interview.loanengine.utilities.exceptions;
+package com.interview.loanengine.utilities.errors;
 
 
 import jakarta.servlet.http.HttpServletRequest;
