@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import lombok.*;
 
+import java.math.BigDecimal;
+
 @AllArgsConstructor
 @NoArgsConstructor
 @Getter
@@ -14,4 +16,12 @@ import lombok.*;
 @Entity
 @Table
 public class Loan extends BaseEntity {
+
+    private BigDecimal loanedAmount;
+
+    private BigDecimal outstandingBalance;
+
+    private BigDecimal interestRate;
+
+    private Integer tenure;
 }

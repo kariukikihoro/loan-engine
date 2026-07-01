@@ -14,8 +14,7 @@ public final class LoanCalculations {
     private static final MathContext MC = new MathContext(20, RoundingMode.HALF_UP);
     private static final BigDecimal MONTHS_PER_YEAR_X_100 = new BigDecimal("1200");
 
-    private LoanCalculations() {
-    }
+    private LoanCalculations() {}
 
     /**
      * Round a monetary amount to 2 dp, HALF_UP.
