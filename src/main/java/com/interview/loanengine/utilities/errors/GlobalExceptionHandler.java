@@ -1,6 +1,9 @@
 package com.interview.loanengine.utilities.errors;
 
 
+import com.interview.loanengine.utilities.exceptions.InvalidPrepaymentException;
+import com.interview.loanengine.utilities.exceptions.LoanNotFoundException;
+import com.interview.loanengine.utilities.exceptions.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,13 +18,18 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(LoanNotFoundException.class)
-    public ResponseEntity<ApiError> handleNotFound(LoanNotFoundException ex, HttpServletRequest req) {
+    @ExceptionHandler({LoanNotFoundException.class, ResourceNotFoundException.class})
+    public ResponseEntity<ApiError> handleNotFound(RuntimeException ex, HttpServletRequest req) {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), req);
     }
 
     @ExceptionHandler(InvalidPrepaymentException.class)
     public ResponseEntity<ApiError> handleInvalidPrepayment(InvalidPrepaymentException ex, HttpServletRequest req) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), req);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest req) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), req);
     }
 

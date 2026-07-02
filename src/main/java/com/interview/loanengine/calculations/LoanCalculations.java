@@ -3,24 +3,32 @@ package com.interview.loanengine.calculations;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class LoanCalculations {
 
     public static final int CALC_SCALE = 10;
     public static final int MONEY_SCALE = 2;
     public static final RoundingMode ROUNDING = RoundingMode.HALF_UP;
-    private static final MathContext MC = new MathContext(20, RoundingMode.HALF_UP);
+    static final MathContext MC = new MathContext(20, RoundingMode.HALF_UP);
     private static final BigDecimal MONTHS_PER_YEAR_X_100 = new BigDecimal("1200");
 
-    private LoanCalculations() {}
+    private LoanCalculations() {
+    }
 
     /**
-     * Round a monetary amount to 2 dp, HALF_UP.
+     * Round a monetary amount to 2 dp, HALF_UP. Use only for presentation.
      */
     public static BigDecimal toMonetaryValue(BigDecimal value) {
         return value.setScale(MONEY_SCALE, ROUNDING);
+    }
+
+    /**
+     * Round to the internal calculation scale so intermediate balances keep full precision
+     * (matching the reference schedule) without unbounded expansion.
+     * Package-visible so {@link ScheduleOps} can reuse it without re-deriving scale logic.
+     */
+    static BigDecimal scale(BigDecimal value) {
+        return value.setScale(CALC_SCALE, ROUNDING);
     }
 
     /**
@@ -47,47 +55,20 @@ public final class LoanCalculations {
                 .divide(factor.subtract(BigDecimal.ONE), CALC_SCALE, ROUNDING);
     }
 
-    /**
-     * Outstanding principal after exactly {@code installments} payments of {@code emi}.
-     */
-    public static BigDecimal balanceAfter(BigDecimal principal, BigDecimal monthlyRate,
-                                          BigDecimal emi, int installments) {
-        BigDecimal balance = principal;
-        for (int i = 1; i <= installments; i++) {
-            BigDecimal interest = balance.multiply(monthlyRate).setScale(CALC_SCALE, ROUNDING);
-            BigDecimal principalComponent = emi.subtract(interest);
-            balance = balance.subtract(principalComponent);
-        }
-        return balance;
+    static BigDecimal calculateInterest(BigDecimal runningBalance, BigDecimal monthlyRate) {
+        return scale(runningBalance.multiply(monthlyRate));
     }
 
-    /**
-     * Build a full amortization schedule for {@code tenorMonths} installments, numbering
-     * rows from {@code firstInstallmentNo}. Balances are carried at full precision; the
-     * caller decides where to round for storage/display.
-     */
-    public static List<ScheduleRow> amortize(BigDecimal principal, BigDecimal monthlyRate,
-                                             BigDecimal emi, int tenorMonths, int firstInstallmentNo) {
-        List<ScheduleRow> rows = new ArrayList<>(tenorMonths);
-        BigDecimal opening = principal;
-        for (int k = 0; k < tenorMonths; k++) {
-            int installmentNo = firstInstallmentNo + k;
-            BigDecimal interest = opening.multiply(monthlyRate).setScale(CALC_SCALE, ROUNDING);
-            BigDecimal principalComponent;
-            BigDecimal payment;
-            if (k == tenorMonths - 1) {
-                // Final installment clears any sub-cent residual exactly.
-                principalComponent = opening;
-                payment = principalComponent.add(interest);
-            } else {
-                principalComponent = emi.subtract(interest);
-                payment = emi;
-            }
-            BigDecimal closing = opening.subtract(principalComponent);
-            rows.add(new ScheduleRow(installmentNo, opening, payment, principalComponent, interest, closing));
-            opening = closing;
-        }
-        return rows;
+    static BigDecimal calculatePrincipalAmount(BigDecimal emiAmount, BigDecimal interest) {
+        return scale(emiAmount.subtract(interest));
+    }
+
+    static BigDecimal calculateRunningBalance(BigDecimal previousRunningBalance, BigDecimal emiAmount) {
+        return scale(previousRunningBalance.add(emiAmount));
+    }
+
+    static BigDecimal calculatePrincipalRunningBalance(BigDecimal previousPrincipalRunningBalance, BigDecimal principalAmount) {
+        return scale(previousPrincipalRunningBalance.add(principalAmount));
     }
 
     private static BigDecimal pow1p(BigDecimal rate, int n) {

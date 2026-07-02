@@ -1,6 +1,7 @@
 package com.interview.loanengine.schedule;
 
 import com.interview.loanengine.loan.Loan;
+import com.interview.loanengine.transactionlogs.TransactionLog;
 import com.interview.loanengine.utilities.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -36,8 +37,14 @@ public class Schedule extends BaseEntity {
     @Transient
     private BigDecimal principalBalance;
 
+    @Enumerated(EnumType.STRING)
+    private InstallmentStatus status;
+
     @ManyToOne
     private Loan loan;
+
+    @ManyToOne
+    private TransactionLog transactionLog;
 
     @PostLoad
     protected void postLoad() {
