@@ -2,6 +2,7 @@ package com.interview.loanengine.transactionlogs;
 
 import com.interview.loanengine.loan.Loan;
 import com.interview.loanengine.utilities.BaseEntity;
+import jakarta.persistence.Column;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Entity;
@@ -29,6 +30,7 @@ public class TransactionLog extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private PrepaymentOption prepaymentOption;
 
+    @Column(precision = 23, scale = 10)
     private BigDecimal transactionAmount;
 
     @ManyToOne

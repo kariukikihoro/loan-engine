@@ -1,5 +1,6 @@
 package com.interview.loanengine.loanproduct;
 
+import com.interview.loanengine.utilities.PageResponse;
 import com.interview.loanengine.utilities.exceptions.ResourceNotFoundException;
 import com.interview.loanengine.utilities.specification.SearchSpecifications;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -35,16 +35,14 @@ public class LoanProductServiceImpl implements LoanProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<LoanProductRequest> searchLoanProducts(String name,
-                                                       BigDecimal interestFrom, BigDecimal interestTo,
-                                                       Integer tenureFrom, Integer tenureTo, Pageable pageable) {
+    public PageResponse<LoanProductRequest> searchLoanProducts(String name,
+                                                               BigDecimal interestFrom, BigDecimal interestTo,
+                                                               Integer tenureFrom, Integer tenureTo, Pageable pageable) {
         Specification<LoanProduct> specification = SearchSpecifications.<LoanProduct>like("productName", name)
                 .and(SearchSpecifications.range("interestRate", interestFrom, interestTo))
                 .and(SearchSpecifications.range("tenureInMonths", tenureFrom, tenureTo));
 
-        return loanProductRepository.findAll(specification, pageable)
-                .map(LoanProductRequest::from)
-                .toList();
+        return PageResponse.from(loanProductRepository.findAll(specification, pageable), LoanProductRequest::from);
     }
 
     private LoanProduct findOrThrow(String id) {

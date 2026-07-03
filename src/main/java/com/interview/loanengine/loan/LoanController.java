@@ -33,7 +33,7 @@ public class LoanController {
                               "message": "Loan created",
                               "object": {
                                 "id": "8f3c0b1e-4c2a-4d9a-9b6e-2f1a7c8e5d10",
-                                "loanProductId": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "loanProductId": "prod-1",
                                 "loanAmount": 100000.00,
                                 "equatedMonthlyInstallment": 8791.59,
                                 "tenure": 12,
@@ -57,7 +57,7 @@ public class LoanController {
     public ResponseEntity<ApisResponse> createLoan(
             @RequestBody(content = @Content(examples = @ExampleObject(value = """
                     {
-                      "loanProductId": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                      "loanProductId": "prod-1",
                       "loanAmount": 100000.00,
                       "firstPaymentDate": "2026-08-01"
                     }
@@ -75,7 +75,7 @@ public class LoanController {
                               "message": "Loan retrieved",
                               "object": {
                                 "id": "8f3c0b1e-4c2a-4d9a-9b6e-2f1a7c8e5d10",
-                                "loanProductId": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "loanProductId": "prod-1",
                                 "loanAmount": 100000.00,
                                 "equatedMonthlyInstallment": 8791.59,
                                 "tenure": 12,

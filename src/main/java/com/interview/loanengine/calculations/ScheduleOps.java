@@ -1,6 +1,7 @@
 package com.interview.loanengine.calculations;
 
 import com.interview.loanengine.loan.Loan;
+import com.interview.loanengine.schedule.InstallmentStatus;
 import com.interview.loanengine.schedule.Schedule;
 import com.interview.loanengine.utilities.exceptions.InvalidPrepaymentException;
 
@@ -36,14 +37,14 @@ public final class ScheduleOps {
     }
 
     /**
-     * Option A: Reduce EMI, Keep Tenor.
+     * Option A: Reduce EMI, Keep Tenor. All apply* methods take the loan's active schedule and
+     * look installments up by number, so they stay correct across repeated prepayments.
      */
     public static RescheduleResult applyReduceEmiKeepTenor(Loan loan, List<Schedule> baseSchedule,
                                                            int prepaymentInstallmentNumber, BigDecimal prepaymentAmount) {
 
-        int originalTenor = loan.getLoanProduct().getTenureInMonths();
-
-        validatePrepayment(originalTenor, baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
+        validatePrepayment(baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
+        int lastInstallmentNumber = lastInstallmentNumber(baseSchedule);
 
         BigDecimal monthlyRate = convertToMonthlyRate(loan.getLoanProduct().getInterestRate());
         BigDecimal outstanding = outstandingBefore(loan, baseSchedule, prepaymentInstallmentNumber);
@@ -55,7 +56,7 @@ public final class ScheduleOps {
         }
 
         BigDecimal newPrincipal = scale(outstanding.subtract(prepaymentAmount));
-        int newTenor = originalTenor - prepaymentInstallmentNumber;
+        int newTenor = lastInstallmentNumber - prepaymentInstallmentNumber;
         BigDecimal newEmi = calculateEquatedMonthlyInstallment(newPrincipal, monthlyRate, newTenor);
 
         List<Schedule> reschedule = new ArrayList<>(newTenor);
@@ -65,11 +66,10 @@ public final class ScheduleOps {
 
         for (int i = 0; i < newTenor; i++) {
             int installmentNumber = prepaymentInstallmentNumber + 1 + i;
-            LocalDate scheduleDate = baseSchedule.get(installmentNumber - 1).getScheduledDate();
+            LocalDate scheduleDate = scheduleDateFor(baseSchedule, installmentNumber);
             boolean lastInstallment = (i == newTenor - 1);
 
             BigDecimal interest = calculateInterest(opening, monthlyRate);
-            // Clear any sub-cent residual on the final installment so the loan settles to zero.
             BigDecimal principal = lastInstallment ? opening : calculatePrincipalAmount(newEmi, interest);
             BigDecimal emi = lastInstallment ? scale(principal.add(interest)) : newEmi;
             BigDecimal closing = lastInstallment ? scale(BigDecimal.ZERO) : scale(opening.subtract(principal));
@@ -101,8 +101,7 @@ public final class ScheduleOps {
     public static RescheduleResult applyReduceTenorKeepEmi(Loan loan, List<Schedule> baseSchedule,
                                                            int prepaymentInstallmentNumber, BigDecimal prepaymentAmount) {
 
-        int originalTenor = loan.getLoanProduct().getTenureInMonths();
-        validatePrepayment(originalTenor, baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
+        validatePrepayment(baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
 
         BigDecimal monthlyRate = convertToMonthlyRate(loan.getLoanProduct().getInterestRate());
         BigDecimal outstanding = outstandingBefore(loan, baseSchedule, prepaymentInstallmentNumber);
@@ -114,7 +113,7 @@ public final class ScheduleOps {
         }
 
         BigDecimal newPrincipal = scale(outstanding.subtract(prepaymentAmount));
-        BigDecimal emi = loan.getEquatedMonthlyInstallment();   // EMI is kept unchanged
+        BigDecimal emi = loan.getEquatedMonthlyInstallment();
 
         List<Schedule> reschedule = new ArrayList<>();
         BigDecimal opening = newPrincipal;
@@ -162,14 +161,23 @@ public final class ScheduleOps {
     public static AdvanceInstallmentResult applyAdvanceInstallments(Loan loan, List<Schedule> baseSchedule,
                                                                     int prepaymentInstallmentNumber, BigDecimal prepaymentAmount) {
 
-        int originalTenor = loan.getLoanProduct().getTenureInMonths();
-        validatePrepayment(originalTenor, baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
+        validatePrepayment(baseSchedule, prepaymentInstallmentNumber, prepaymentAmount);
+        int lastInstallmentNumber = lastInstallmentNumber(baseSchedule);
 
         BigDecimal outstanding = outstandingBefore(loan, baseSchedule, prepaymentInstallmentNumber);
         BigDecimal emi = loan.getEquatedMonthlyInstallment();
 
-        // Installments still due fromLoan the prepayment installment onwards (inclusive).
-        int remainingInstallments = originalTenor - prepaymentInstallmentNumber + 1;
+        int remainingInstallments = lastInstallmentNumber - prepaymentInstallmentNumber + 1;
+
+        BigDecimal totalRemainingDue = baseSchedule.stream()
+                .filter(s -> s.getInstallmentNumber() >= prepaymentInstallmentNumber)
+                .map(Schedule::getEmiAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (prepaymentAmount.compareTo(totalRemainingDue) > 0) {
+            throw new InvalidPrepaymentException("Prepayment amount " + prepaymentAmount
+                    + " exceeds the total remaining obligations " + scale(totalRemainingDue)
+                    + "; use full early settlement to close the loan.");
+        }
 
         int fullyCovered = prepaymentAmount.divideToIntegralValue(emi).intValue();
         if (fullyCovered > remainingInstallments) {
@@ -181,7 +189,7 @@ public final class ScheduleOps {
         int nextPayableInstallmentNumber = prepaymentInstallmentNumber + fullyCovered;
 
         BigDecimal remainingDueOnNextInstallment = null;
-        if (remainingPrepayment.signum() > 0 && nextPayableInstallmentNumber <= originalTenor) {
+        if (remainingPrepayment.signum() > 0 && nextPayableInstallmentNumber <= lastInstallmentNumber) {
             remainingDueOnNextInstallment = scale(emi.subtract(remainingPrepayment));
         }
 
@@ -189,28 +197,40 @@ public final class ScheduleOps {
                 nextPayableInstallmentNumber, remainingDueOnNextInstallment);
     }
 
-    private static void validatePrepayment(int originalTenor, List<Schedule> baseSchedule,
+    private static void validatePrepayment(List<Schedule> baseSchedule,
                                            int prepaymentInstallmentNumber, BigDecimal prepaymentAmount) {
         if (prepaymentAmount == null || prepaymentAmount.signum() <= 0) {
             throw new InvalidPrepaymentException("Prepayment amount must be greater than zero");
         }
-        if (prepaymentInstallmentNumber < 1 || prepaymentInstallmentNumber >= originalTenor) {
-            throw new InvalidPrepaymentException("Prepayment installment number must be between 1 and "
-                    + (originalTenor - 1));
+        if (baseSchedule == null || baseSchedule.isEmpty()) {
+            throw new InvalidPrepaymentException("A repayment schedule is required to process a prepayment");
         }
-        if (baseSchedule == null || baseSchedule.size() < originalTenor) {
-            throw new InvalidPrepaymentException("A complete base repayment schedule is required to process a prepayment");
+        int lastInstallmentNumber = lastInstallmentNumber(baseSchedule);
+        if (prepaymentInstallmentNumber < 1 || prepaymentInstallmentNumber >= lastInstallmentNumber) {
+            throw new InvalidPrepaymentException("Prepayment installment number must be between 1 and "
+                    + (lastInstallmentNumber - 1));
+        }
+        Schedule target = findByNumber(baseSchedule, prepaymentInstallmentNumber);
+        if (target != null && target.getStatus() == InstallmentStatus.PAID) {
+            throw new InvalidPrepaymentException("Installment " + prepaymentInstallmentNumber
+                    + " has already been paid; prepay at a later installment.");
         }
     }
 
     /**
-     * Principal still owed at the moment of the given installment (all prior installments assumed paid).
+     * Principal still owed entering the given installment, resolved by installment number since
+     * a rescheduled active schedule can skip the superseded prepayment installment.
      */
     private static BigDecimal outstandingBefore(Loan loan, List<Schedule> baseSchedule, int installmentNumber) {
-        if (installmentNumber == 1) {
+        Schedule previous = null;
+        for (Schedule schedule : baseSchedule) {
+            if (schedule.getInstallmentNumber() < installmentNumber) {
+                previous = schedule;
+            }
+        }
+        if (previous == null) {
             return scale(loan.getLoanedAmount());
         }
-        Schedule previous = baseSchedule.get(installmentNumber - 2);
         BigDecimal principalBalance = previous.getPrincipalBalance();
         if (principalBalance == null) {
             principalBalance = loan.getLoanedAmount().subtract(previous.getPrincipalRunningBalance());
@@ -219,14 +239,26 @@ public final class ScheduleOps {
     }
 
     /**
-     * Scheduled date for an installment number
+     * Scheduled date for an installment number, extrapolating monthly past the end of the schedule.
      */
     private static LocalDate scheduleDateFor(List<Schedule> baseSchedule, int installmentNumber) {
-        if (installmentNumber <= baseSchedule.size()) {
-            return baseSchedule.get(installmentNumber - 1).getScheduledDate();
+        Schedule match = findByNumber(baseSchedule, installmentNumber);
+        if (match != null) {
+            return match.getScheduledDate();
         }
-        LocalDate lastDate = baseSchedule.get(baseSchedule.size() - 1).getScheduledDate();
-        return lastDate.plusMonths(installmentNumber - baseSchedule.size());
+        Schedule last = baseSchedule.get(baseSchedule.size() - 1);
+        return last.getScheduledDate().plusMonths(installmentNumber - last.getInstallmentNumber());
+    }
+
+    private static Schedule findByNumber(List<Schedule> baseSchedule, int installmentNumber) {
+        return baseSchedule.stream()
+                .filter(s -> s.getInstallmentNumber() == installmentNumber)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static int lastInstallmentNumber(List<Schedule> baseSchedule) {
+        return baseSchedule.get(baseSchedule.size() - 1).getInstallmentNumber();
     }
 
     private static Schedule populateScheduleValues(LocalDate scheduleDate, Schedule previousSchedule, Loan loan) {

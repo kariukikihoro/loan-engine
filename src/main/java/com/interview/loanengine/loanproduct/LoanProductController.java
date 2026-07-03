@@ -33,7 +33,7 @@ public class LoanProductController {
                             {
                               "message": "Loan product created",
                               "object": {
-                                "id": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "id": "prod-1",
                                 "productName": "Personal Loan",
                                 "productDescription": "Unsecured personal loan",
                                 "tenureInMonths": 12,
@@ -67,7 +67,7 @@ public class LoanProductController {
                             {
                               "message": "Loan product retrieved",
                               "object": {
-                                "id": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "id": "prod-1",
                                 "productName": "Personal Loan",
                                 "productDescription": "Unsecured personal loan",
                                 "tenureInMonths": 12,
@@ -79,7 +79,7 @@ public class LoanProductController {
                             """)))
     @GetMapping("/find-by-id")
     public ResponseEntity<ApisResponse> get(
-            @Parameter(example = "b1a2c3d4-e5f6-7890-abcd-ef1234567890") @RequestParam String id) {
+            @Parameter(example = "prod-1") @RequestParam String id) {
 
         return ResponseEntity.ok(ApisResponse.of(
                 "Loan product retrieved", loanProductService.findLoanProductById(id), HttpStatus.OK.value()));
@@ -94,7 +94,7 @@ public class LoanProductController {
                               "object": {
                                 "content": [
                                   {
-                                    "id": "b1a2c3d4-e5f6-7890-abcd-ef1234567890",
+                                    "id": "prod-1",
                                     "productName": "Personal Loan",
                                     "tenureInMonths": 12,
                                     "interestRate": 12.0

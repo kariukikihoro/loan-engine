@@ -13,6 +13,7 @@ import com.interview.loanengine.schedule.Schedule;
 import com.interview.loanengine.schedule.ScheduleRepository;
 import com.interview.loanengine.schedule.ScheduleResponse;
 import com.interview.loanengine.schedule.ScheduleServiceImpl;
+import com.interview.loanengine.utilities.PageResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -89,33 +90,37 @@ class SearchSpecificationTest {
 
     @Test
     void productSearchByNameUsesLike() {
-        List<LoanProductRequest> results = loanProductService.searchLoanProducts("home", null, null, null, null, FIRST_PAGE);
-        assertEquals(1, results.size());
-        assertEquals("Home Loan", results.get(0).productName());
+        PageResponse<LoanProductRequest> results =
+                loanProductService.searchLoanProducts("home", null, null, null, null, FIRST_PAGE);
+        assertEquals(1, results.totalElements());
+        assertEquals("Home Loan", results.content().get(0).productName());
     }
 
     @Test
     void productSearchByInterestAndTenureRanges() {
-        // interest from 15 -> only the 18% auto product
         assertEquals(List.of("Auto Loan"),
                 loanProductService.searchLoanProducts(null, new BigDecimal("15"), null, null, null, FIRST_PAGE)
-                        .stream().map(LoanProductRequest::productName).toList());
-        // tenure 40..70 -> only the 60-month home product
+                        .content().stream().map(LoanProductRequest::productName).toList());
         assertEquals(List.of("Home Loan"),
                 loanProductService.searchLoanProducts(null, null, null, 40, 70, FIRST_PAGE)
-                        .stream().map(LoanProductRequest::productName).toList());
+                        .content().stream().map(LoanProductRequest::productName).toList());
     }
 
     @Test
     void productSearchWithNoFiltersReturnsAll() {
-        assertEquals(2, loanProductService.searchLoanProducts(null, null, null, null, null, FIRST_PAGE).size());
+        assertEquals(2, loanProductService.searchLoanProducts(null, null, null, null, null, FIRST_PAGE)
+                .content().size());
     }
 
     @Test
-    void productSearchHonoursPageSize() {
-        // two products exist, but a page size of 1 must cap the returned results
-        assertEquals(1,
-                loanProductService.searchLoanProducts(null, null, null, null, null, PageRequest.of(0, 1)).size());
+    void productSearchHonoursPageSizeAndReportsPageInfo() {
+        PageResponse<LoanProductRequest> page =
+                loanProductService.searchLoanProducts(null, null, null, null, null, PageRequest.of(0, 1));
+        assertEquals(1, page.content().size());
+        assertEquals(2, page.totalElements());
+        assertEquals(2, page.totalPages());
+        assertEquals(0, page.number());
+        assertEquals(1, page.size());
     }
 
     @Test
@@ -129,11 +134,11 @@ class SearchSpecificationTest {
 
     @Test
     void scheduleSearchUsesJpqlByLoanAndProduct() {
-        assertEquals(2, scheduleService.searchSchedules(homeLoan.getId(), null, FIRST_PAGE).size());
-        assertEquals(1, scheduleService.searchSchedules(null, autoProduct.getId(), FIRST_PAGE).size());
+        assertEquals(2, scheduleService.searchSchedules(homeLoan.getId(), null, FIRST_PAGE).totalElements());
+        assertEquals(1, scheduleService.searchSchedules(null, autoProduct.getId(), FIRST_PAGE).totalElements());
 
-        List<ScheduleResponse> all = scheduleService.searchSchedules(null, null, FIRST_PAGE);
-        assertEquals(3, all.size());
-        assertTrue(all.stream().anyMatch(s -> s.installmentNumber() == 2));
+        PageResponse<ScheduleResponse> all = scheduleService.searchSchedules(null, null, FIRST_PAGE);
+        assertEquals(3, all.totalElements());
+        assertTrue(all.content().stream().anyMatch(s -> s.installmentNumber() == 2));
     }
 }

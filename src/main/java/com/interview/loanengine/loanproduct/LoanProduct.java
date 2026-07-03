@@ -27,7 +27,7 @@ public class LoanProduct extends BaseEntity {
     @Column(nullable = false)
     private Integer tenureInMonths;
 
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 23, scale = 10)
     private BigDecimal interestRate;
 
     @Column(nullable = false)

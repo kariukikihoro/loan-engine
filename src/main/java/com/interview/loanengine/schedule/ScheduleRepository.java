@@ -32,6 +32,9 @@ public interface ScheduleRepository extends JpaRepository<Schedule, String> {
 
     List<Schedule> findByLoanIdAndStatusOrderByInstallmentNumberAsc(String loanId, InstallmentStatus status);
 
+    /** The "active" schedule: every installment that has not been superseded by a reschedule. */
+    List<Schedule> findByLoanIdAndStatusNotOrderByInstallmentNumberAsc(String loanId, InstallmentStatus status);
+
     List<Schedule> findByLoanIdAndInstallmentNumberGreaterThanEqualOrderByInstallmentNumberAsc(
             String loanId, Integer installmentNumber);
 

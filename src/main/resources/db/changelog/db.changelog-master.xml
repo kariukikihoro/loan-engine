@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Creates the tables (schema.sql uses CREATE TABLE IF NOT EXISTS, so it is idempotent). -->
+    <changeSet id="001-create-schema" author="loanengine">
+        <sqlFile path="schema.sql" relativeToChangelogFile="false" splitStatements="true" endDelimiter=";"/>
+    </changeSet>
+
+    <!-- Seeds the loan product catalogue. Runs only once and only if no products exist yet. -->
+    <changeSet id="002-seed-loan-products" author="muriithi">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM loan_product</sqlCheck>
+        </preConditions>
+
+        <insert tableName="loan_product">
+            <column name="id" value="prod-1"/>
+            <column name="deleted" valueBoolean="false"/>
+            <column name="created_at" valueComputed="NOW()"/>
+            <column name="product_name" value="Personal Loan"/>
+            <column name="product_description" value="Unsecured personal loan for individual borrowers"/>
+            <column name="tenure_in_months" valueNumeric="12"/>
+            <column name="interest_rate" valueNumeric="12.0"/>
+            <column name="first_payment_month" valueNumeric="1"/>
+        </insert>
+
+        <insert tableName="loan_product">
+            <column name="id" value="prod-2"/>
+            <column name="deleted" valueBoolean="false"/>
+            <column name="created_at" valueComputed="NOW()"/>
+            <column name="product_name" value="Business Loan"/>
+            <column name="product_description" value="Working capital loan for small and medium enterprises"/>
+            <column name="tenure_in_months" valueNumeric="24"/>
+            <column name="interest_rate" valueNumeric="15.5"/>
+            <column name="first_payment_month" valueNumeric="1"/>
+        </insert>
+
+        <insert tableName="loan_product">
+            <column name="id" value="prod-3"/>
+            <column name="deleted" valueBoolean="false"/>
+            <column name="created_at" valueComputed="NOW()"/>
+            <column name="product_name" value="Asset Financing Loan"/>
+            <column name="product_description" value="Secured loan for vehicle and equipment financing"/>
+            <column name="tenure_in_months" valueNumeric="36"/>
+            <column name="interest_rate" valueNumeric="10.0"/>
+            <column name="first_payment_month" valueNumeric="2"/>
+        </insert>
+    </changeSet>
+
+    <!-- Loan lifecycle status, persisted schedule closing balance, and advance-installment credit. -->
+    <changeSet id="003-loan-status-and-schedule-columns" author="muriithi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="loan" columnName="status"/>
+            </not>
+        </preConditions>
+
+        <addColumn tableName="loan">
+            <column name="status" type="VARCHAR(20)"/>
+        </addColumn>
+        <addColumn tableName="schedule">
+            <column name="principal_balance" type="DECIMAL(23, 10)"/>
+            <column name="prepaid_amount" type="DECIMAL(23, 10)"/>
+        </addColumn>
+
+        <sql>UPDATE loan SET status = 'ACTIVE' WHERE status IS NULL</sql>
+        <sql>
+            UPDATE schedule s
+            JOIN loan l ON s.loan_id = l.id
+            SET s.principal_balance = l.loaned_amount - s.principal_running_balance
+            WHERE s.principal_balance IS NULL
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

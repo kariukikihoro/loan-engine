@@ -1,14 +1,13 @@
 package com.interview.loanengine.payment;
 
-import com.interview.loanengine.calculations.AdvanceInstallmentResult;
 import com.interview.loanengine.calculations.LoanCalculations;
-import com.interview.loanengine.calculations.RescheduleResult;
-import com.interview.loanengine.calculations.ScheduleOps;
 import com.interview.loanengine.loan.Loan;
 import com.interview.loanengine.loan.LoanRepository;
+import com.interview.loanengine.loan.LoanStatus;
 import com.interview.loanengine.payment.dto.InstallmentPaymentRequest;
 import com.interview.loanengine.payment.dto.PrepaymentRequest;
 import com.interview.loanengine.payment.event.PaymentMadeEvent;
+import com.interview.loanengine.payment.strategy.PrepaymentStrategy;
 import com.interview.loanengine.schedule.InstallmentStatus;
 import com.interview.loanengine.schedule.Schedule;
 import com.interview.loanengine.schedule.ScheduleRepository;
@@ -34,6 +33,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final ScheduleRepository scheduleRepository;
     private final TransactionLogRepository transactionLogRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final List<PrepaymentStrategy> strategies;
 
     @Override
     @Transactional
@@ -45,12 +45,17 @@ public class PaymentServiceImpl implements PaymentService {
         if (pending.isEmpty()) {
             throw new IllegalArgumentException("Loan " + loanId + " has no pending installments to pay");
         }
+        if (request.numberOfInstallments() > pending.size()) {
+            throw new IllegalArgumentException("Requested " + request.numberOfInstallments()
+                    + " installments but only " + pending.size() + " remain pending");
+        }
 
-        int count = Math.min(request.numberOfInstallments(), pending.size());
-        List<Schedule> toPay = List.copyOf(pending.subList(0, count));
+        List<Schedule> toPay = List.copyOf(pending.subList(0, request.numberOfInstallments()));
 
         BigDecimal amount = toPay.stream()
-                .map(Schedule::getEmiAmount)
+                .map(s -> s.getPrepaidAmount() == null
+                        ? s.getEmiAmount()
+                        : s.getEmiAmount().subtract(s.getPrepaidAmount()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         TransactionLog log = transactionLogRepository.save(TransactionLog.builder()
@@ -64,11 +69,14 @@ public class PaymentServiceImpl implements PaymentService {
                 toPay.stream().map(Schedule::getId).toList()));
 
         Schedule lastPaid = toPay.get(toPay.size() - 1);
-
         if (lastPaid.getPrincipalBalance() != null) {
-            loan.setOutstandingBalance(LoanCalculations.toMonetaryValue(lastPaid.getPrincipalBalance()));
-            loanRepository.save(loan);
+            loan.setOutstandingBalance(lastPaid.getPrincipalBalance());
         }
+        if (toPay.size() == pending.size()) {
+            loan.setStatus(LoanStatus.CLOSED);
+            loan.setOutstandingBalance(BigDecimal.ZERO);
+        }
+        loanRepository.save(loan);
 
         return InstallmentPaymentRequest.fromTransactionLog(log, toPay, loan.getOutstandingBalance());
     }
@@ -77,83 +85,25 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional
     public PrepaymentRequest processPrepayment(String loanId, PrepaymentRequest request) {
         Loan loan = findLoanOrThrow(loanId);
-        List<Schedule> baseSchedule = scheduleRepository.findByLoanIdOrderByInstallmentNumberAsc(loanId);
-
-        PrepaymentOption option = request.option();
-        int installmentNumber = request.installmentNumber();
-        BigDecimal amount = request.amount();
+        List<Schedule> activeSchedule = scheduleRepository
+                .findByLoanIdAndStatusNotOrderByInstallmentNumberAsc(loanId, InstallmentStatus.ADJUSTED);
 
         TransactionLog log = transactionLogRepository.save(TransactionLog.builder()
                 .transactionDate(LocalDate.now())
                 .transactionType(TransactionType.PARTIAL_PREPAYMENT)
-                .prepaymentOption(option)
-                .transactionAmount(LoanCalculations.toMonetaryValue(amount))
+                .prepaymentOption(request.option())
+                .transactionAmount(LoanCalculations.toMonetaryValue(request.amount()))
                 .loan(loan)
                 .build());
 
-        return switch (option) {
-            case REDUCE_EMI_KEEP_TENOR -> {
-                RescheduleResult result = ScheduleOps.applyReduceEmiKeepTenor(
-                        loan, baseSchedule, installmentNumber, amount);
-                reschedule(loan, result, installmentNumber, log);
-                loan.setEquatedMonthlyInstallment(result.newEmi());
-                loan.setOutstandingBalance(LoanCalculations.toMonetaryValue(result.newPrincipal()));
-                loanRepository.save(loan);
-                yield PrepaymentRequest.reschedule(log, option, amount, result);
-            }
-            case REDUCE_TENOR_KEEP_EMI -> {
-                RescheduleResult result = ScheduleOps.applyReduceTenorKeepEmi(
-                        loan, baseSchedule, installmentNumber, amount);
-                reschedule(loan, result, installmentNumber, log);
-                loan.setTenure((installmentNumber - 1) + result.newTenor());
-                loan.setOutstandingBalance(LoanCalculations.toMonetaryValue(result.newPrincipal()));
-                loanRepository.save(loan);
-                yield PrepaymentRequest.reschedule(log, option, amount, result);
-            }
-            case ADVANCE_INSTALLMENTS -> {
-                AdvanceInstallmentResult result = ScheduleOps.applyAdvanceInstallments(
-                        loan, baseSchedule, installmentNumber, amount);
-                coverInAdvance(loan, installmentNumber, result.installmentsFullyCovered(), log);
-                yield PrepaymentRequest.advance(log, installmentNumber, amount, result);
-            }
-        };
+        return strategyFor(request.option()).apply(loan, activeSchedule, request, log);
     }
 
-    /**
-     * Options A/B: supersede the remaining installments (mark ADJUSTED, link the log) and persist
-     * the freshly recalculated schedule as PENDING.
-     */
-    private void reschedule(Loan loan, RescheduleResult result, int installmentNumber, TransactionLog log) {
-        List<Schedule> superseded = scheduleRepository
-                .findByLoanIdAndInstallmentNumberGreaterThanEqualOrderByInstallmentNumberAsc(loan.getId(), installmentNumber);
-        for (Schedule schedule : superseded) {
-            schedule.setStatus(InstallmentStatus.ADJUSTED);
-            schedule.setTransactionLog(log);
-        }
-        scheduleRepository.saveAll(superseded);
-
-        List<Schedule> recalculated = result.schedule();
-        recalculated.forEach(schedule -> {
-            schedule.setStatus(InstallmentStatus.PENDING);
-            schedule.setTransactionLog(log);
-        });
-        scheduleRepository.saveAll(recalculated);
-    }
-
-    /**
-     * Option C: the lump sum pre-funds whole future installments. Those covered installments are
-     * settled in advance via the payment event (marked PAID and linked to the log).
-     */
-    private void coverInAdvance(Loan loan, int installmentNumber, int fullyCovered, TransactionLog log) {
-        if (fullyCovered <= 0) {
-            return;
-        }
-        int lastCovered = installmentNumber + fullyCovered - 1;
-
-        List<Schedule> covered = scheduleRepository
-                .findByLoanIdAndInstallmentNumberBetweenOrderByInstallmentNumberAsc(loan.getId(), installmentNumber, lastCovered);
-        eventPublisher.publishEvent(new PaymentMadeEvent(log.getId(),
-                covered.stream().map(Schedule::getId).toList()));
+    private PrepaymentStrategy strategyFor(PrepaymentOption option) {
+        return strategies.stream()
+                .filter(strategy -> strategy.option() == option)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unsupported prepayment option: " + option));
     }
 
     private Loan findLoanOrThrow(String loanId) {

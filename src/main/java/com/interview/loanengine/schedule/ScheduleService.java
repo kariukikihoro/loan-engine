@@ -1,10 +1,9 @@
 package com.interview.loanengine.schedule;
 
+import com.interview.loanengine.utilities.PageResponse;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 public interface ScheduleService {
 
-    List<ScheduleResponse> searchSchedules(String loanId, String loanProductId, Pageable pageable);
+    PageResponse<ScheduleResponse> searchSchedules(String loanId, String loanProductId, Pageable pageable);
 }

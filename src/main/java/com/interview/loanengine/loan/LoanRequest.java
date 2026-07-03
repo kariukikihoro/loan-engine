@@ -19,6 +19,7 @@ public record LoanRequest(
         @NotNull LocalDate firstPaymentDate,
         BigDecimal equatedMonthlyInstallment,
         Integer tenure,
+        LoanStatus status,
         BigDecimal outstandingBalance,
         List<ScheduleResponse> schedule
 ) {
@@ -40,6 +41,7 @@ public record LoanRequest(
                 .outstandingBalance(request.loanAmount())
                 .equatedMonthlyInstallment(emi)
                 .tenure(product.getTenureInMonths())
+                .status(LoanStatus.ACTIVE)
                 .loanProduct(product)
                 .build();
     }
@@ -52,6 +54,7 @@ public record LoanRequest(
                 null,
                 money(loan.getEquatedMonthlyInstallment()),
                 loan.getTenure(),
+                loan.getStatus(),
                 money(loan.getOutstandingBalance()),
                 schedule.stream().map(ScheduleResponse::from).toList());
     }

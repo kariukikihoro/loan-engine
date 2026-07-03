@@ -15,10 +15,8 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
 
 springdoc:
   swagger-ui:

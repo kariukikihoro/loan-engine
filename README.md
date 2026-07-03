@@ -1,38 +1,46 @@
 # Loan Engine
 
-A small Spring Boot service for managing reducing-balance loans — from defining a loan
-product, to disbursing a loan and generating its repayment schedule, to recording payments
-and handling early (pre-) payments.
+A Spring Boot service for managing reducing-balance loans — from defining a loan product, to
+disbursing a loan and generating its repayment schedule, to recording payments and handling
+prepayments (Category A of the assessment: all three options).
 
 ## What it does
 
 - **Loan products** — reusable templates (interest rate, tenure in months, first payment month)
-  that loans are created from.
+  that loans are created from. Three products are seeded automatically: `prod-1` (Personal Loan,
+  12 mo @ 12%), `prod-2` (Business Loan, 24 mo @ 15.5%), `prod-3` (Asset Financing Loan, 36 mo @ 10%).
 - **Loans** — created against a product. The engine works out the **EMI** (Equated Monthly
   Installment) and builds the full **repayment schedule** using the standard reducing-balance
-  formula.
-- **Payments** — record one or more scheduled installments as paid.
-- **Prepayments** — pay a lump sum early and choose how the loan should adjust:
-  - **Reduce EMI, keep tenure** — smaller monthly payments, same number of months.
-  - **Reduce tenure, keep EMI** — same monthly payment, loan finishes sooner.
-  - **Advance installments** — the lump sum simply pre-funds future installments (no recalculation).
-- **Search** — look up products, loans, and schedules with optional filters (and pagination
-  where it makes sense).
-- **Transaction log** — every payment and prepayment is recorded.
+  formula. Loans carry a lifecycle status (`ACTIVE` / `CLOSED`).
+- **Payments** — record one or more scheduled installments as paid. Paying the final pending
+  installment closes the loan.
+- **Prepayments** — pay a lump sum early at any valid installment and choose how the loan adjusts:
+  - **Option A — Reduce EMI, keep tenor** (`REDUCE_EMI_KEEP_TENOR`): smaller monthly payments,
+    same number of months.
+  - **Option B — Reduce tenor, keep EMI** (`REDUCE_TENOR_KEEP_EMI`): same monthly payment, loan
+    finishes sooner.
+  - **Option C — Advance installments** (`ADVANCE_INSTALLMENTS`): no recalculation; the lump sum
+    pre-funds whole future installments and any leftover is stored as a credit against the next one.
+  Each option is implemented as a `PrepaymentStrategy`; superseded installments are marked
+  `ADJUSTED` and the recalculated schedule is written alongside them, all in one transaction.
+- **Transaction log** — every payment and prepayment is recorded immutably, including the
+  business option applied.
 
 ## Tech stack
 
 - Java 21, Spring Boot 3.5
 - Spring Data JPA (MySQL in production, H2 for tests)
+- Liquibase for schema migration and seed data
 - Gradle, JUnit 5
 
 ## Running it
 
-You need Java 21 and a MySQL instance (the schema is created automatically from
-`src/main/resources/schema.sql`).
+You need Java 21 and a MySQL instance. On startup, Liquibase creates the tables
+(`src/main/resources/schema.sql`, executed via `db/changelog/db.changelog-master.xml`) and seeds
+the three loan products — once, and only if no products exist yet.
 
 ```bash
-# start the app (defaults connect to jdbc:mysql://localhost:3306/loanengine as root/root)
+# start the app (defaults connect to jdbc:mysql://localhost:3306/loanengine as user/userpassword)
 ./gradlew bootRun
 
 # run the tests (uses an in-memory H2 database — no MySQL needed)
@@ -44,12 +52,38 @@ Database connection can be overridden with environment variables:
 | Variable      | Default                                        |
 |---------------|------------------------------------------------|
 | `DB_URL`      | `jdbc:mysql://localhost:3306/loanengine?...`   |
-| `DB_USERNAME` | `root`                                         |
-| `DB_PASSWORD` | `root`                                         |
+| `DB_USERNAME` | `user`                                         |
+| `DB_PASSWORD` | `userpassword`                                 |
+
+Interactive API docs (Swagger UI) are served at **http://localhost:8080/swagger-ui.html** —
+every endpoint below can be triggered from there with pre-filled examples.
+
+## Trying it with curl
+
+```bash
+# 1. Create a loan against a seeded product (1,000,000 over the product's tenure)
+curl -s -X POST localhost:8080/loans/create \
+  -H 'Content-Type: application/json' \
+  -d '{"loanProductId":"prod-1","loanAmount":1000000,"firstPaymentDate":"2026-08-01"}'
+# -> note the returned loan "id" (LOAN_ID below); the response includes the full schedule
+
+# 2. Fetch the repayment schedule
+curl -s "localhost:8080/loans/loan-schedule?loanId=LOAN_ID"
+
+# 3. Pay the first two installments
+curl -s -X POST localhost:8080/loans/LOAN_ID/payments \
+  -H 'Content-Type: application/json' \
+  -d '{"numberOfInstallments":2}'
+
+# 4. Prepay 200,000 at installment 3 — choose the strategy via "option"
+curl -s -X POST localhost:8080/loans/LOAN_ID/prepayments \
+  -H 'Content-Type: application/json' \
+  -d '{"option":"REDUCE_EMI_KEEP_TENOR","installmentNumber":3,"amount":200000}'
+```
 
 ## API at a glance
 
-All responses are wrapped in a common envelope (`message`, `data`, `status`).
+All responses are wrapped in a common envelope (`message`, `object`, `status`).
 
 ### Loan products — `/loan-products`
 
@@ -59,53 +93,21 @@ All responses are wrapped in a common envelope (`message`, `data`, `status`).
 | `GET  /find-by-id?id=`       | Fetch one product                     |
 | `GET  /search`               | Search by name / interest / tenure (paginated via `page` & `size`) |
 
-```json
-// POST /loan-products/create
-{
-  "productName": "Home Loan",
-  "productDescription": "Standard home loan",
-  "tenureInMonths": 60,
-  "interestRate": 12.0,
-  "firstPaymentMonth": 7
-}
-```
-
 ### Loans — `/loans`
 
 | Method & path                    | What it does                                 |
 |----------------------------------|----------------------------------------------|
 | `POST /create`                   | Create a loan (returns the schedule)         |
-| `GET  /find-by-id?loanId=`       | Fetch a loan                                 |
+| `GET  /find-by-id?loanId=`       | Fetch a loan (includes status and balance)   |
 | `GET  /loan-schedule?loanId=`    | Fetch a loan's repayment schedule            |
 | `GET  /search`                   | Search by tenure / loaned-amount range       |
-
-```json
-// POST /loans/create
-{
-  "loanProductId": "<product-id>",
-  "loanAmount": 1000000,
-  "firstPaymentDate": "2026-01-01"
-}
-```
 
 ### Payments — `/loans/{loanId}`
 
 | Method & path        | What it does                                   |
 |----------------------|------------------------------------------------|
 | `POST /payments`     | Record N scheduled installments as paid        |
-| `POST /prepayments`  | Make an early lump-sum payment                 |
-
-```json
-// POST /loans/{loanId}/payments
-{ "numberOfInstallments": 2 }
-
-// POST /loans/{loanId}/prepayments
-{
-  "option": "REDUCE_EMI_KEEP_TENOR",   // or REDUCE_TENOR_KEEP_EMI | ADVANCE_INSTALLMENTS
-  "installmentNumber": 12,
-  "amount": 200000
-}
-```
+| `POST /prepayments`  | Make an early lump-sum payment (options above) |
 
 ### Schedules — `/schedules`
 
@@ -113,9 +115,17 @@ All responses are wrapped in a common envelope (`message`, `data`, `status`).
 |-----------------|-------------------------------------------------------|
 | `GET /search`   | Search installments by loan / product (`page`, `size`)|
 
+## Validation & error handling
+
+Structured JSON errors are returned for invalid operations, e.g. negative or zero amounts,
+prepayments at or above the outstanding balance (use settlement instead), prepaying an
+installment that is already paid, advance amounts exceeding the total remaining obligations, or
+paying more installments than remain. Unknown loans/products return `404`.
+
 ## How the numbers work
 
-Money is handled with `BigDecimal` throughout. Intermediate balances are kept at high
-precision and only rounded to 2 decimal places (HALF_UP) for display, so the generated
-schedule matches a standard reducing-balance amortization table. See
-`calculations/LoanCalculations.java` for the EMI formula and schedule/prepayment logic.
+Money is handled with `BigDecimal` throughout (`DECIMAL(23,10)` columns). Intermediate balances
+are kept at 10-decimal precision and only rounded to 2 decimal places (HALF_UP) for presentation,
+so the generated schedule matches the reference reducing-balance amortization table to the cent.
+See `calculations/LoanCalculations.java` for the EMI formula and `calculations/ScheduleOps.java`
+for schedule generation and the three prepayment computations.

@@ -50,7 +50,7 @@ public final class LoanCalculations {
         if (monthlyRate.signum() == 0) {
             return principal.divide(BigDecimal.valueOf(tenorMonths), CALC_SCALE, ROUNDING);
         }
-        BigDecimal factor = pow1p(monthlyRate, tenorMonths);           // (1+r)^n
+        BigDecimal factor = pow1p(monthlyRate, tenorMonths);
         return principal.multiply(monthlyRate).multiply(factor, MC)
                 .divide(factor.subtract(BigDecimal.ONE), CALC_SCALE, ROUNDING);
     }
