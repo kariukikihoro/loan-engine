@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -118,20 +119,26 @@ public class LoanController {
                 "Repayment schedule retrieved", loanService.findLoanSchedules(loanId), HttpStatus.OK.value()));
     }
 
-    @Operation(summary = "Search loans by tenure and loaned amount range")
+    @Operation(summary = "Search loans by tenure and loaned amount range (paged)")
     @ApiResponse(responseCode = "200", description = "Loans retrieved",
             content = @Content(schema = @Schema(implementation = ApisResponse.class),
                     examples = @ExampleObject(value = """
                             {
                               "message": "Loans retrieved",
-                              "object": [
-                                {
-                                  "id": "8f3c0b1e-4c2a-4d9a-9b6e-2f1a7c8e5d10",
-                                  "loanAmount": 100000.00,
-                                  "tenure": 12,
-                                  "outstandingBalance": 92208.41
-                                }
-                              ],
+                              "object": {
+                                "content": [
+                                  {
+                                    "id": "8f3c0b1e-4c2a-4d9a-9b6e-2f1a7c8e5d10",
+                                    "loanAmount": 100000.00,
+                                    "tenure": 12,
+                                    "outstandingBalance": 92208.41
+                                  }
+                                ],
+                                "totalElements": 1,
+                                "totalPages": 1,
+                                "number": 0,
+                                "size": 10
+                              },
                               "status": 200
                             }
                             """)))
@@ -139,8 +146,10 @@ public class LoanController {
     public ResponseEntity<ApisResponse> searchLoans(
             @Parameter(example = "12") @RequestParam(required = false) Integer tenure,
             @Parameter(example = "50000") @RequestParam(required = false) BigDecimal loanedAmountFrom,
-            @Parameter(example = "150000") @RequestParam(required = false) BigDecimal loanedAmountTo) {
+            @Parameter(example = "150000") @RequestParam(required = false) BigDecimal loanedAmountTo,
+            @Parameter(example = "0") @RequestParam(defaultValue = "0") int page,
+            @Parameter(example = "10") @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(ApisResponse.of("Loans retrieved",
-                loanService.searchLoans(tenure, loanedAmountFrom, loanedAmountTo), HttpStatus.OK.value()));
+                loanService.searchLoans(tenure, loanedAmountFrom, loanedAmountTo, PageRequest.of(page, size)), HttpStatus.OK.value()));
     }
 }

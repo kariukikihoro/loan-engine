@@ -12,6 +12,8 @@ import com.interview.loanengine.utilities.exceptions.LoanNotFoundException;
 import com.interview.loanengine.utilities.exceptions.ResourceNotFoundException;
 import com.interview.loanengine.utilities.specification.SearchSpecifications;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,12 +64,11 @@ public class LoanServiceImpl implements LoanService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<LoanRequest> searchLoans(Integer tenure, BigDecimal loanedAmountFrom, BigDecimal loanedAmountTo) {
+    public Page<LoanRequest> searchLoans(Integer tenure, BigDecimal loanedAmountFrom, BigDecimal loanedAmountTo, Pageable pageable) {
         Specification<Loan> specification = SearchSpecifications.<Loan>equal("tenure", tenure)
                 .and(SearchSpecifications.range("loanedAmount", loanedAmountFrom, loanedAmountTo));
-        return loanRepository.findAll(specification).stream()
-                .map(loan -> LoanRequest.fromLoan(loan, List.of()))
-                .toList();
+        return loanRepository.findAll(specification, pageable)
+                .map(loan -> LoanRequest.fromLoan(loan, List.of()));
     }
 
     private Loan findOrThrow(String loanId) {
@@ -75,3 +76,4 @@ public class LoanServiceImpl implements LoanService {
                 .orElseThrow(() -> new LoanNotFoundException("Loan not found: " + loanId));
     }
 }
+

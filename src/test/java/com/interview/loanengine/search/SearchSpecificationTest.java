@@ -125,11 +125,11 @@ class SearchSpecificationTest {
 
     @Test
     void loanSearchByTenureAndLoanedAmountRange() {
-        assertEquals(1, loanService.searchLoans(60, null, null).size());
+        assertEquals(1, loanService.searchLoans(60, null, null, FIRST_PAGE).getTotalElements());
         // loanedAmount from 600000 -> only the 1,000,000 home loan
-        List<LoanRequest> range = loanService.searchLoans(null, new BigDecimal("600000"), null);
-        assertEquals(1, range.size());
-        assertEquals(homeLoan.getId(), range.get(0).id());
+        var range = loanService.searchLoans(null, new BigDecimal("600000"), null, FIRST_PAGE);
+        assertEquals(1, range.getTotalElements());
+        assertEquals(homeLoan.getId(), range.getContent().get(0).id());
     }
 
     @Test
